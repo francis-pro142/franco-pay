@@ -1,0 +1,496 @@
+// Minimal frontend app for FRANCO PAY
+const API_BASE = '/api';
+
+function apiFetch(path, opts = {}) {
+  const token = localStorage.getItem('fp_token');
+  const headers = opts.headers || {};
+  headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  opts.headers = headers;
+  return fetch(API_BASE + path, opts).then(r => r.json());
+}
+
+function go(path) { window.location.href = path; }
+function uuid() { return (crypto && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(16).slice(2) + Date.now().toString(16); }
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', minimumFractionDigits: 2 }).format(amount);
+}
+function getGreetingFromServerTime(isoString) {
+  const serverDate = new Date(isoString || Date.now());
+  const hour = serverDate.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function validateEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function validatePhone(value) {
+  return /^\+?[0-9\-()\s]{7,20}$/.test(String(value || '').trim());
+}
+
+function validatePassword(value) {
+  return String(value || '').length >= 8;
+}
+
+const loginForm = document.getElementById('loginForm');
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const identifier = (loginForm.email.value || '').trim();
+    const password = loginForm.password.value;
+
+    if (!identifier || !password || !validatePassword(password)) {
+      alert('Please enter a valid email/phone and a password with at least 8 characters.');
+      return;
+    }
+
+    const data = {
+      email: identifier,
+      phone: identifier,
+      password: password
+    };
+    const res = await fetch(API_BASE + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+
+    if (res.token) {
+      localStorage.setItem('fp_token', res.token);
+      go('dashboard.html');
+    } else {
+      alert(res.error || 'Login failed');
+    }
+  });
+}
+
+function showWelcomeBonusModal() {
+  const modal = document.getElementById('bonusModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function hideWelcomeBonusModal() {
+  const modal = document.getElementById('bonusModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+async function claimWelcomeBonus() {
+  const token = localStorage.getItem('fp_token');
+  if (!token) return;
+
+  const res = await fetch(API_BASE + '/wallet/claim-bonus', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token
+    }
+  }).then(r => r.json());
+
+  if (res.status === 'claimed' || res.balance !== undefined) {
+    hideWelcomeBonusModal();
+    const walletBalance = document.getElementById('walletBalance');
+    if (walletBalance) walletBalance.textContent = formatMoney(res.balance ?? 0);
+    const banner = document.getElementById('welcomeBanner');
+    if (banner) banner.textContent = `Bonus accepted: ${formatMoney(res.balance ?? 0)} is now available in your wallet.`;
+    return true;
+  }
+
+  alert(res.error || 'Unable to accept bonus right now.');
+  return false;
+}
+
+const regForm = document.getElementById('registerForm');
+if (regForm) {
+  regForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const emailValue = (regForm.email.value || '').trim();
+    const phoneValue = (regForm.phone.value || '').trim();
+    const passwordValue = regForm.password.value;
+    const fullName = (regForm.full_name.value || '').trim();
+
+    if (!fullName || (!emailValue && !phoneValue) || !validatePassword(passwordValue)) {
+      alert('Please provide a full name, a valid email or phone number, and a password of at least 8 characters.');
+      return;
+    }
+
+    if (emailValue && !validateEmail(emailValue)) {
+      alert('The email address is invalid.');
+      return;
+    }
+
+    if (phoneValue && !validatePhone(phoneValue)) {
+      alert('The phone number is invalid.');
+      return;
+    }
+
+    const data = {
+      full_name: fullName,
+      email: emailValue,
+      phone: phoneValue,
+      password: passwordValue
+    };
+
+    const res = await fetch(API_BASE + '/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+
+    if (res.wallet_number) {
+      alert('Account created. Your first-time welcome bonus of GHC 100,000 has been added.');
+      go('login.html');
+    } else {
+      alert(res.error || 'Registration failed');
+    }
+  });
+}
+
+let currentWalletState = { balance: 0, wallet_number: '' };
+let pendingRecipientConfirmation = null;
+
+if (document.location.pathname.endsWith('/send.html')) {
+  (async () => {
+    try {
+      const token = localStorage.getItem('fp_token');
+      if (!token) {
+        go('login.html');
+        return;
+      }
+
+      const wallet = await apiFetch('/wallet');
+      currentWalletState = {
+        balance: Number(wallet.balance ?? 0),
+        wallet_number: wallet.wallet_number || ''
+      };
+
+      const balanceEl = document.getElementById('availableBalance');
+      if (balanceEl) balanceEl.textContent = formatMoney(currentWalletState.balance);
+    } catch (err) {
+      console.error(err);
+      const result = document.getElementById('result');
+      if (result) result.textContent = 'Unable to load wallet details.';
+    }
+  })();
+}
+
+function showRecipientReview(recipientDetails) {
+  const modal = document.getElementById('recipientModal');
+  const nameEl = document.getElementById('reviewName');
+  const walletEl = document.getElementById('reviewWallet');
+  if (!modal || !nameEl || !walletEl) return;
+
+  nameEl.textContent = recipientDetails.full_name;
+  walletEl.textContent = `${recipientDetails.wallet_number} • ${formatMoney(recipientDetails.amount)}`;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  pendingRecipientConfirmation = recipientDetails;
+}
+
+function clearRecipientReview() {
+  const modal = document.getElementById('recipientModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  pendingRecipientConfirmation = null;
+}
+
+if (document.location.pathname.endsWith('/dashboard.html')) {
+  const sidebarNav = Array.from(document.querySelectorAll('.side-nav a'));
+  sidebarNav.forEach((item) => {
+    item.addEventListener('click', () => {
+      sidebarNav.forEach((navItem) => navItem.classList.toggle('active', navItem === item));
+      const nav = document.querySelector('.sidebar');
+      if (nav) nav.classList.remove('mobile-open');
+    });
+  });
+
+  const menuToggle = document.getElementById('sidebarToggle');
+  const sidebar = document.querySelector('.sidebar');
+  if (menuToggle && sidebar) {
+    menuToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('mobile-open');
+    });
+  }
+
+  const renderTransactions = (transactions = []) => {
+    const container = document.getElementById('transactions');
+    if (!container) return;
+
+    if (!transactions.length) {
+      container.innerHTML = '<div class="empty-state">No transactions yet. Your welcome bonus is ready to use.</div>';
+      return;
+    }
+
+    const rows = transactions.map((t) => {
+      const label = t.status || 'PENDING';
+      const badge = label === 'SUCCESS' ? 'success' : 'neutral';
+      return `
+        <div class="transaction-row">
+          <div>
+            <strong>${t.transaction_reference || '—'}</strong>
+            <small>${new Date(t.created_at || Date.now()).toLocaleString()}</small>
+          </div>
+          <div class="amount-block">
+            <span class="amount ${Number(t.amount) > 0 ? 'credit' : 'debit'}">${formatMoney(t.amount)}</span>
+            <span class="status-badge ${badge}">${label}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = rows;
+  };
+
+  const loadDashboard = async () => {
+    try {
+      const token = localStorage.getItem('fp_token');
+      if (!token) {
+        go('login.html');
+        return;
+      }
+
+      const wallet = await apiFetch('/wallet');
+      const balance = Number(wallet.balance ?? 0);
+      const walletNumber = wallet.wallet_number || '—';
+      const currency = wallet.currency || 'GHS';
+      const userName = wallet.full_name || 'Account Holder';
+      const greeting = getGreetingFromServerTime(wallet.server_time);
+      const bonusEligible = !!wallet.bonus_eligible;
+
+      const greetingEl = document.getElementById('greetingText');
+      if (greetingEl) greetingEl.textContent = greeting;
+
+      const welcomeTitleEl = document.getElementById('welcomeTitle');
+      if (welcomeTitleEl) welcomeTitleEl.textContent = `${userName}`;
+
+      const accountNameEl = document.getElementById('accountName');
+      if (accountNameEl) accountNameEl.textContent = userName;
+
+      const accountNameSmallEl = document.getElementById('accountNameSmall');
+      if (accountNameSmallEl) accountNameSmallEl.textContent = userName;
+
+      const timestampEl = document.getElementById('serverTimestamp');
+      if (timestampEl && wallet.server_time) {
+        const serverDate = new Date(wallet.server_time);
+        timestampEl.textContent = serverDate.toLocaleString('en-GH', {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        });
+      }
+
+      const balanceEl = document.getElementById('walletBalance');
+      if (balanceEl) balanceEl.textContent = formatMoney(balance);
+
+      const walletNumberEl = document.getElementById('walletNumber');
+      if (walletNumberEl) walletNumberEl.textContent = `${walletNumber} • ${currency}`;
+
+      const walletCodeEl = document.getElementById('walletCode');
+      if (walletCodeEl) walletCodeEl.textContent = walletNumber;
+
+      const walletNumberDetailEl = document.getElementById('walletNumberDetail');
+      if (walletNumberDetailEl) walletNumberDetailEl.textContent = walletNumber;
+
+      const banner = document.getElementById('welcomeBanner');
+      if (banner) {
+        banner.textContent = bonusEligible
+          ? 'A first-time welcome bonus is available and waiting for your approval.'
+          : balance >= 100000
+            ? `Welcome bonus: ${formatMoney(100000)} has been added to ${userName}'s account.`
+            : 'Your wallet is active and ready for your next transfer.';
+      }
+
+      if (bonusEligible) {
+        showWelcomeBonusModal();
+      } else {
+        hideWelcomeBonusModal();
+      }
+
+      const tx = await apiFetch('/transactions');
+      const txCountEl = document.getElementById('txCount');
+      if (txCountEl) txCountEl.textContent = String(tx.transactions ? tx.transactions.length : 0);
+
+      renderTransactions(tx.transactions || []);
+    } catch (err) {
+      console.error(err);
+      const container = document.getElementById('transactions');
+      if (container) container.innerHTML = '<div class="empty-state">Unable to load your dashboard right now.</div>';
+    }
+  };
+
+  loadDashboard();
+
+  const refreshBtn = document.getElementById('refreshWallet');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadDashboard);
+  }
+
+  const acceptBonusBtn = document.getElementById('acceptBonusBtn');
+  if (acceptBonusBtn) {
+    acceptBonusBtn.addEventListener('click', async () => {
+      const credited = await claimWelcomeBonus();
+      if (credited) {
+        await loadDashboard();
+      }
+    });
+  }
+
+  const dismissBonusBtn = document.getElementById('dismissBonusBtn');
+  if (dismissBonusBtn) {
+    dismissBonusBtn.addEventListener('click', () => {
+      hideWelcomeBonusModal();
+    });
+  }
+
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      const token = localStorage.getItem('fp_token');
+      if (token) {
+        try {
+          await fetch(API_BASE + '/auth/logout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + token
+            }
+          });
+        } catch (err) {
+          console.warn('Logout API call failed.', err);
+        }
+      }
+      localStorage.removeItem('fp_token');
+      go('login.html');
+    });
+  }
+}
+
+const sendForm = document.getElementById('sendForm');
+if (sendForm) {
+  const out = document.getElementById('result');
+  const cancelBtn = document.getElementById('cancelReviewBtn');
+  const confirmBtn = document.getElementById('confirmTransferBtn');
+
+  sendForm.addEventListener('input', () => {
+    clearRecipientReview();
+    if (out) {
+      out.classList.remove('error', 'success');
+      out.textContent = 'Ready to send.';
+    }
+  });
+
+  const submitReview = async () => {
+    const recipient = (sendForm.recipient.value || '').trim();
+    const amount = parseFloat(sendForm.amount.value);
+    const description = (sendForm.description.value || '').trim();
+
+    if (!recipient) {
+      out.textContent = 'Please enter a valid recipient wallet number.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (recipient.toUpperCase() === currentWalletState.wallet_number.toUpperCase()) {
+      out.textContent = 'Security check failed: you cannot send money to your own wallet.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      out.textContent = 'Amount must be greater than zero.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (amount > currentWalletState.balance) {
+      out.textContent = 'Security check failed: this transfer exceeds your available balance.';
+      out.classList.add('error');
+      return;
+    }
+
+    try {
+      const lookup = await fetch(API_BASE + '/wallet/resolve?wallet_number=' + encodeURIComponent(recipient), {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
+      }).then(r => r.json());
+
+      if (!lookup || lookup.error) {
+        out.textContent = 'Recipient not found. Please verify the wallet number.';
+        out.classList.add('error');
+        return;
+      }
+
+      showRecipientReview({
+        full_name: lookup.full_name,
+        wallet_number: lookup.wallet_number,
+        amount
+      });
+
+      out.textContent = 'Please confirm the recipient before sending.';
+      out.classList.remove('error');
+      out.classList.add('success');
+    } catch (err) {
+      out.textContent = 'Unable to verify recipient details.';
+      out.classList.add('error');
+    }
+  };
+
+  sendForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (pendingRecipientConfirmation) {
+      return;
+    }
+    await submitReview();
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    if (!pendingRecipientConfirmation) return;
+
+    const confirmedRecipient = pendingRecipientConfirmation.wallet_number;
+    const confirmedAmount = pendingRecipientConfirmation.amount;
+    const data = {
+      recipient: confirmedRecipient,
+      amount: confirmedAmount,
+      description: (sendForm.description.value || '').trim()
+    };
+
+    const idKey = uuid();
+    const resp = await fetch(API_BASE + '/transactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idKey,
+        'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '')
+      },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+
+    clearRecipientReview();
+    if (resp.status === 'SUCCESS') {
+      out.textContent = 'Transfer successful. Reference: ' + (resp.transaction?.transaction_reference || 'n/a');
+      out.classList.add('success');
+      sendForm.reset();
+      const updatedBalance = Math.max(0, currentWalletState.balance - confirmedAmount);
+      currentWalletState.balance = updatedBalance;
+      const balanceEl = document.getElementById('availableBalance');
+      if (balanceEl) balanceEl.textContent = formatMoney(updatedBalance);
+    } else {
+      out.textContent = 'Security check failed: ' + (resp.reason || resp.error || 'Please verify the transfer details.');
+      out.classList.add('error');
+    }
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    clearRecipientReview();
+    out.textContent = 'Transfer cancelled. Please review the recipient again.';
+    out.classList.remove('success');
+    out.classList.add('error');
+  });
+}

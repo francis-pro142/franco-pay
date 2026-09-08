@@ -1,0 +1,258 @@
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/../src/Http/helpers.php';
+
+use App\Models\User;
+use App\Models\Wallet;
+use App\Models\Session;
+use App\Services\TransactionService;
+use App\Models\Audit;
+use App\Services\DatabaseConnection;
+
+$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$method = $_SERVER['REQUEST_METHOD'];
+
+// Simple routing
+if (($uri === '/' || $uri === '/index.php' || $uri === '/frontend' || $uri === '/frontend/') && $method === 'GET') {
+    header('Location: /frontend/index.html');
+    exit;
+}
+
+if ($uri === '/api/health' && $method === 'GET') {
+    \App\Http\jsonResponse(['status' => 'ok', 'time' => date('c')]);
+    exit;
+}
+
+// Registration
+if ($uri === '/api/auth/register' && $method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $fullName = \App\Http\normalizeText($input['full_name'] ?? '');
+    $email = \App\Http\normalizeText($input['email'] ?? '');
+    $phone = \App\Http\normalizeText($input['phone'] ?? '');
+    $password = $input['password'] ?? null;
+    $role = trim((string)($input['role'] ?? 'user')) ?: 'user';
+
+    if ($fullName === '' || ($email === '' && $phone === '') || !is_string($password) || strlen($password) < 8) {
+        \App\Http\jsonResponse(['error' => 'full_name, valid email or phone, and password (min 8 chars) are required'], 422);
+        exit;
+    }
+
+    if ($email !== '' && !\App\Http\isValidEmail($email)) {
+        \App\Http\jsonResponse(['error' => 'email is invalid'], 422);
+        exit;
+    }
+
+    if ($phone !== '' && !\App\Http\isValidPhone($phone)) {
+        \App\Http\jsonResponse(['error' => 'phone number is invalid'], 422);
+        exit;
+    }
+
+    if (!$email && $phone) {
+        $email = 'phone_' . preg_replace('/[^A-Za-z0-9]/', '', $phone) . '@francopay.local';
+    }
+
+    if (User::findByEmail($email) || ($phone !== '' && User::findByPhone($phone))) {
+        \App\Http\jsonResponse(['error' => 'email or phone already registered'], 409);
+        exit;
+    }
+
+    try {
+        $userId = User::create($fullName, $email, $password, $phone !== '' ? $phone : null, $role);
+        $walletNumber = 'FP' . str_pad((string)$userId, 8, '0', STR_PAD_LEFT);
+        Wallet::create($userId, $walletNumber, 0.00);
+        \App\Http\jsonResponse(['message' => 'account created', 'wallet_number' => $walletNumber], 201);
+    } catch (Exception $e) {
+        \App\Http\jsonResponse(['error' => 'unable to create account'], 500);
+    }
+    exit;
+}
+
+// Login
+if ($uri === '/api/auth/login' && $method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $identifier = \App\Http\normalizeText($input['email'] ?? $input['phone'] ?? '');
+    $password = $input['password'] ?? null;
+
+    if ($identifier === '' || !is_string($password) || strlen($password) < 8) {
+        \App\Http\jsonResponse(['error' => 'valid email or phone and password (min 8 chars) are required'], 422);
+        exit;
+    }
+
+    $user = User::findByLoginIdentifier($identifier);
+    if (!$user || !password_verify($password, $user['password_hash'])) {
+        \App\Http\jsonResponse(['error' => 'invalid credentials'], 401);
+        exit;
+    }
+    // Create a session token and persist
+    $token = bin2hex(random_bytes(16));
+    try {
+        Session::create((int)$user['id'], $token, null);
+    } catch (Exception $e) {
+        \App\Http\jsonResponse(['error' => 'unable to create session'], 500);
+        exit;
+    }
+
+    \App\Http\jsonResponse(['message' => 'authenticated', 'token' => $token, 'user' => ['full_name' => $user['full_name'], 'role' => $user['role'] ?? 'user']]);
+    exit;
+}
+
+if ($uri === '/api/auth/logout' && $method === 'POST') {
+    $authUser = \App\Http\requireAuth();
+    $token = \App\Http\getBearerToken();
+    if (!$token) {
+        \App\Http\jsonResponse(['error' => 'Unauthorized'], 401);
+        exit;
+    }
+    Session::deleteByToken($token);
+    \App\Http\jsonResponse(['status' => 'logged_out', 'message' => 'session ended']);
+    exit;
+}
+
+// Wallet - require auth
+if ($uri === '/api/wallet' && $method === 'GET') {
+    $authUser = \App\Http\requireAuth();
+    $wallet = Wallet::findByUserId((int)$authUser['id']);
+    if (!$wallet) {
+        \App\Http\jsonResponse(['error' => 'wallet not found'], 404);
+        exit;
+    }
+    \App\Http\jsonResponse([
+        'wallet_number' => $wallet['wallet_number'],
+        'balance' => (float)$wallet['balance'],
+        'currency' => $wallet['currency'],
+        'full_name' => $authUser['full_name'],
+        'bonus_eligible' => (int)($wallet['bonus_claimed'] ?? 0) === 0,
+        'server_time' => date('c')
+    ]);
+    exit;
+}
+
+if ($uri === '/api/wallet/resolve' && $method === 'GET') {
+    $authUser = \App\Http\requireAuth();
+    $walletNumber = trim((string)($_GET['wallet_number'] ?? ''));
+    if (!$walletNumber) {
+        \App\Http\jsonResponse(['error' => 'wallet_number is required'], 422);
+        exit;
+    }
+
+    $wallet = Wallet::findByWalletNumber($walletNumber);
+    if (!$wallet) {
+        \App\Http\jsonResponse(['error' => 'recipient wallet not found'], 404);
+        exit;
+    }
+
+    $recipient = \App\Models\User::findById((int)$wallet['user_id']);
+    \App\Http\jsonResponse([
+        'wallet_number' => $wallet['wallet_number'],
+        'full_name' => $recipient['full_name'] ?? 'Unknown User',
+        'balance' => (float)$wallet['balance'],
+        'currency' => $wallet['currency']
+    ]);
+    exit;
+}
+
+if ($uri === '/api/wallet/claim-bonus' && $method === 'POST') {
+    $authUser = \App\Http\requireAuth();
+    $wallet = Wallet::claimWelcomeBonus((int)$authUser['id']);
+    if (!$wallet) {
+        \App\Http\jsonResponse(['error' => 'wallet not found'], 404);
+        exit;
+    }
+    \App\Http\jsonResponse([
+        'status' => 'claimed',
+        'wallet_number' => $wallet['wallet_number'],
+        'balance' => (float)$wallet['balance'],
+        'currency' => $wallet['currency'],
+        'bonus_eligible' => false,
+        'bonus_amount' => 100000.00
+    ]);
+    exit;
+}
+
+// Create Transaction
+if ($uri === '/api/transactions' && $method === 'POST') {
+    $authUser = \App\Http\requireAuth();
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $recipient = \App\Http\normalizeText((string)($input['recipient'] ?? ''));
+    $amount = isset($input['amount']) ? (float)$input['amount'] : null;
+    $description = \App\Http\normalizeText((string)($input['description'] ?? ''));
+
+    $idempotencyKey = $_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ($_SERVER['HTTP_IDEMPOTENCYKEY'] ?? null);
+
+    if ($recipient === '' || !is_numeric($amount) || (float)$amount <= 0) {
+        \App\Http\jsonResponse(['error' => 'valid recipient and positive amount are required'], 422);
+        exit;
+    }
+
+    if (!\App\Http\isValidWalletNumber($recipient)) {
+        \App\Http\jsonResponse(['error' => 'recipient wallet number is invalid'], 422);
+        exit;
+    }
+
+    if ($description !== '' && strlen($description) > 160) {
+        \App\Http\jsonResponse(['error' => 'description is too long'], 422);
+        exit;
+    }
+
+    $result = TransactionService::createTransaction((int)$authUser['id'], $recipient, $amount, $idempotencyKey, $description === '' ? null : $description);
+    if ($result['status'] === 'SUCCESS') {
+        \App\Http\jsonResponse(['status' => 'SUCCESS', 'transaction' => $result['transaction']], 201);
+    } else {
+        \App\Http\jsonResponse(['status' => 'FAILED', 'reason' => $result['reason'] ?? 'ERROR', 'details' => $result['message'] ?? null], 400);
+    }
+    exit;
+}
+
+// Transaction history
+if ($uri === '/api/transactions' && $method === 'GET') {
+    $authUser = \App\Http\requireAuth();
+    $pdo = App\Services\DatabaseConnection::get();
+    $wallet = Wallet::findByUserId((int)$authUser['id']);
+    if (!$wallet) {\App\Http\jsonResponse(['transactions' => []]); exit;}
+    $stmt = $pdo->prepare('SELECT * FROM transactions WHERE sender_wallet_id = ? OR receiver_wallet_id = ? ORDER BY created_at DESC');
+    $stmt->execute([(int)$wallet['id'], (int)$wallet['id']]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    \App\Http\jsonResponse(['transactions' => $rows]);
+    exit;
+}
+
+if (preg_match('#^/api/transactions/([^/]+)$#', $uri, $matches) && $method === 'GET') {
+    $authUser = \App\Http\requireAuth();
+    $reference = rawurldecode($matches[1]);
+    $transaction = \App\Models\TransactionModel::findByReference($reference);
+    if (!$transaction) {
+        \App\Http\jsonResponse(['error' => 'transaction not found'], 404);
+        exit;
+    }
+
+    $wallet = Wallet::findByUserId((int)$authUser['id']);
+    if (!$wallet) {
+        \App\Http\jsonResponse(['error' => 'wallet not found'], 404);
+        exit;
+    }
+
+    if ((int)$transaction['sender_wallet_id'] !== (int)$wallet['id'] && (int)$transaction['receiver_wallet_id'] !== (int)$wallet['id']) {
+        \App\Http\jsonResponse(['error' => 'Forbidden'], 403);
+        exit;
+    }
+
+    \App\Http\jsonResponse(['transaction' => $transaction]);
+    exit;
+}
+
+if ($uri === '/api/admin/audit' && $method === 'GET') {
+    $authUser = \App\Http\requireAuth();
+    if (($authUser['role'] ?? 'user') !== 'admin') {
+        \App\Http\jsonResponse(['error' => 'Forbidden'], 403);
+        exit;
+    }
+
+    $pdo = App\Services\DatabaseConnection::get();
+    $stmt = $pdo->query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 50');
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    \App\Http\jsonResponse(['status' => 'ok', 'items' => $rows]);
+    exit;
+}
+
+http_response_code(404);
+\App\Http\jsonResponse(['error' => 'Not Found'], 404);
