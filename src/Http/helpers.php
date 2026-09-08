@@ -87,6 +87,16 @@ function requireAuth()
         jsonResponse(['error' => 'Unauthorized'], 401);
         exit;
     }
+    // Enforce session expiry if set
+    if (!empty($session['expires_at'])) {
+        $expires = strtotime($session['expires_at']);
+        if ($expires !== false && time() > $expires) {
+            // delete expired session
+            \App\Models\Session::deleteByToken($token);
+            jsonResponse(['error' => 'Session expired'], 401);
+            exit;
+        }
+    }
     $user = \App\Models\User::findById((int)$session['user_id']);
     if (!$user) {
         jsonResponse(['error' => 'Unauthorized'], 401);

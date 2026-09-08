@@ -17,6 +17,17 @@
           <option value="25" selected>25</option>
           <option value="50">50</option>
         </select>
+        <select id="auditSortBy">
+          <option value="created_at">Date</option>
+          <option value="user_id">User</option>
+          <option value="action">Action</option>
+          <option value="entity_type">Entity</option>
+        </select>
+        <select id="auditSortOrder">
+          <option value="DESC">Desc</option>
+          <option value="ASC">Asc</option>
+        </select>
+        <button id="exportCsv">Export CSV</button>
         <button id="refreshAudit">Refresh</button>
         <button id="logoutBtn">Logout</button>
       </div>

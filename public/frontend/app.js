@@ -454,6 +454,42 @@ if (document.location.pathname.endsWith('/admin.html')) {
     }
   }
 
+  // Export CSV using server-side export endpoint
+  const exportBtn = document.getElementById('exportCsv');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const token = localStorage.getItem('fp_token') || '';
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('page_size', String(pageSizeSelect.value || '25'));
+      params.set('q', searchInput.value || '');
+      params.set('sort_by', document.getElementById('auditSortBy').value || 'created_at');
+      params.set('sort_order', document.getElementById('auditSortOrder').value || 'DESC');
+      params.set('export', 'csv');
+
+      try {
+        const resp = await fetch(API_BASE + '/admin/audit?' + params.toString(), {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) {
+          alert('Export failed: ' + resp.statusText);
+          return;
+        }
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'audit_logs.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        alert('Export failed');
+      }
+    });
+  }
+
   if (refreshBtn) refreshBtn.addEventListener('click', loadAudit);
   if (searchInput) searchInput.addEventListener('input', () => { page = 1; renderPage(); });
   if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => { page = 1; renderPage(); });

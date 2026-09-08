@@ -107,5 +107,9 @@ Query parameters (optional):
 - `from`: start date or datetime (ISO `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`) — inclusive
 - `to`: end date or datetime (ISO `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`) — inclusive
 
+- `sort_by`: column to sort by (`created_at`, `user_id`, `action`, `entity_type`) — default `created_at`
+- `sort_order`: `ASC` or `DESC` — default `DESC`
+- `export`: set to `csv` to download results as CSV
+
 Response includes `items` (array of audit rows) and `pagination` with `page`, `page_size`, `total`, and `total_pages`.
 

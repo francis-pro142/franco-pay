@@ -121,6 +121,7 @@ if ($uri === '/api/wallet' && $method === 'GET') {
         'balance' => (float)$wallet['balance'],
         'currency' => $wallet['currency'],
         'full_name' => $authUser['full_name'],
+        'role' => $authUser['role'] ?? 'user',
         'bonus_eligible' => (int)($wallet['bonus_claimed'] ?? 0) === 0,
         'server_time' => date('c')
     ]);
@@ -322,11 +323,41 @@ if ($uri === '/api/admin/audit' && $method === 'GET') {
     if ($page > $totalPages) $page = $totalPages;
     $offset = ($page - 1) * $pageSize;
 
-    $sql = 'SELECT * FROM audit_logs ' . $whereSql . ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    // Sorting
+    $sortBy = trim((string)($_GET['sort_by'] ?? 'created_at'));
+    $allowedSort = ['created_at','user_id','action','entity_type'];
+    if (!in_array($sortBy, $allowedSort)) $sortBy = 'created_at';
+    $sortOrder = strtoupper(trim((string)($_GET['sort_order'] ?? 'DESC')));
+    if ($sortOrder !== 'ASC') $sortOrder = 'DESC';
+
+    $sql = 'SELECT * FROM audit_logs ' . $whereSql . " ORDER BY $sortBy $sortOrder LIMIT ? OFFSET ?";
     $stmt = $pdo->prepare($sql);
     $execParams = array_merge($params, [$pageSize, $offset]);
     $stmt->execute($execParams);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // CSV export
+    $export = trim((string)($_GET['export'] ?? ''));
+    if (strtolower($export) === 'csv') {
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="audit_logs.csv"');
+        $out = fopen('php://output', 'w');
+        fputcsv($out, ['id','user_id','action','entity_type','entity_id','ip_address','metadata','created_at']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                $r['id'] ?? '',
+                $r['user_id'] ?? '',
+                $r['action'] ?? '',
+                $r['entity_type'] ?? '',
+                $r['entity_id'] ?? '',
+                $r['ip_address'] ?? '',
+                $r['metadata'] ?? '',
+                $r['created_at'] ?? ''
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
 
     \App\Http\jsonResponse([
         'status' => 'ok',
