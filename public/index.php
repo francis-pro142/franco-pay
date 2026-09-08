@@ -339,6 +339,19 @@ if ($uri === '/api/admin/audit' && $method === 'GET') {
     // CSV export
     $export = trim((string)($_GET['export'] ?? ''));
     if (strtolower($export) === 'csv') {
+        // Rate-limit CSV exports per admin user (simple temp-file throttling)
+        $userId = $authUser['id'] ?? null;
+        $limitSeconds = 60; // allow one export per user per minute
+        if ($userId) {
+            $tmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'francopay_export_' . (int)$userId . '.lock';
+            if (file_exists($tmp) && (filemtime($tmp) > time() - $limitSeconds)) {
+                \App\Http\jsonResponse(['error' => 'Rate limit: please wait before exporting again'], 429);
+                exit;
+            }
+            // touch the file to record export time
+            @touch($tmp);
+        }
+
         header('Content-Type: text/csv');
         header('Content-Disposition: attachment; filename="audit_logs.csv"');
         $out = fopen('php://output', 'w');

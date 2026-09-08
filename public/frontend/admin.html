@@ -12,6 +12,15 @@
       <h1>Admin — Audit Logs</h1>
       <div class="top-actions">
         <input id="auditSearch" placeholder="Search action, user, entity or metadata" />
+        <label for="fromDate">From</label>
+        <input id="fromDate" type="date" />
+        <label for="toDate">To</label>
+        <input id="toDate" type="date" />
+        <div class="preset-buttons">
+          <button id="presetToday">Today</button>
+          <button id="preset7">Last 7 days</button>
+          <button id="preset30">Last 30 days</button>
+        </div>
         <select id="auditPageSize">
           <option value="10">10</option>
           <option value="25" selected>25</option>

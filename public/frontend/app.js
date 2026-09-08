@@ -436,7 +436,18 @@ if (document.location.pathname.endsWith('/admin.html')) {
     if (!auditContainer) return;
     auditContainer.innerHTML = '<div class="empty-state">Loading audit logs…</div>';
     try {
-      const res = await fetch(API_BASE + '/admin/audit', {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('page_size', String(pageSizeSelect.value || '25'));
+      params.set('q', searchInput.value || '');
+      params.set('sort_by', document.getElementById('auditSortBy').value || 'created_at');
+      params.set('sort_order', document.getElementById('auditSortOrder').value || 'DESC');
+      const fromVal = (document.getElementById('fromDate') || {}).value || '';
+      const toVal = (document.getElementById('toDate') || {}).value || '';
+      if (fromVal) params.set('from', fromVal);
+      if (toVal) params.set('to', toVal);
+
+      const res = await fetch(API_BASE + '/admin/audit?' + params.toString(), {
         headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
       }).then(r => r.json());
 
@@ -490,6 +501,21 @@ if (document.location.pathname.endsWith('/admin.html')) {
     });
   }
 
+  // Preset buttons
+  const presetToday = document.getElementById('presetToday');
+  const preset7 = document.getElementById('preset7');
+  const preset30 = document.getElementById('preset30');
+  function setDateRange(days) {
+    const now = new Date();
+    const to = now.toISOString().slice(0,10);
+    const from = new Date(now.getTime() - (days-1)*24*60*60*1000).toISOString().slice(0,10);
+    if (fromDate) fromDate.value = from;
+    if (toDate) toDate.value = to;
+    loadAudit();
+  }
+  if (presetToday) presetToday.addEventListener('click', () => setDateRange(1));
+  if (preset7) preset7.addEventListener('click', () => setDateRange(7));
+  if (preset30) preset30.addEventListener('click', () => setDateRange(30));
   if (refreshBtn) refreshBtn.addEventListener('click', loadAudit);
   if (searchInput) searchInput.addEventListener('input', () => { page = 1; renderPage(); });
   if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => { page = 1; renderPage(); });
