@@ -247,10 +247,76 @@ if ($uri === '/api/admin/audit' && $method === 'GET') {
         exit;
     }
 
+    // Server-side filtering and pagination
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $pageSize = (int)($_GET['page_size'] ?? 25);
+    if ($pageSize < 1) $pageSize = 1;
+    if ($pageSize > 100) $pageSize = 100;
+
+    $q = trim((string)($_GET['q'] ?? ''));
+    $filterAction = trim((string)($_GET['action'] ?? ''));
+    $filterUser = trim((string)($_GET['user_id'] ?? ''));
+    $filterEntity = trim((string)($_GET['entity_type'] ?? ''));
+
     $pdo = App\Services\DatabaseConnection::get();
-    $stmt = $pdo->query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 50');
+    $where = [];
+    $params = [];
+
+    if ($q !== '') {
+        $like = '%' . str_replace('%', '\\%', $q) . '%';
+        $where[] = '(action LIKE ? OR entity_type LIKE ? OR entity_id LIKE ? OR metadata LIKE ? OR ip_address LIKE ?)';
+        array_push($params, $like, $like, $like, $like, $like);
+    }
+
+    if ($filterAction !== '') {
+        $where[] = 'action = ?';
+        $params[] = $filterAction;
+    }
+
+    if ($filterEntity !== '') {
+        $where[] = 'entity_type = ?';
+        $params[] = $filterEntity;
+    }
+
+    if ($filterUser !== '') {
+        // allow numeric ids only for user filter
+        if (is_numeric($filterUser)) {
+            $where[] = 'user_id = ?';
+            $params[] = (int)$filterUser;
+        }
+    }
+
+    $whereSql = '';
+    if (count($where) > 0) {
+        $whereSql = 'WHERE ' . implode(' AND ', $where);
+    }
+
+    // total count for pagination
+    $countSql = 'SELECT COUNT(*) as c FROM audit_logs ' . $whereSql;
+    $countStmt = $pdo->prepare($countSql);
+    $countStmt->execute($params);
+    $total = (int)$countStmt->fetch(PDO::FETCH_ASSOC)['c'];
+
+    $totalPages = (int)max(1, ceil($total / $pageSize));
+    if ($page > $totalPages) $page = $totalPages;
+    $offset = ($page - 1) * $pageSize;
+
+    $sql = 'SELECT * FROM audit_logs ' . $whereSql . ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    $stmt = $pdo->prepare($sql);
+    $execParams = array_merge($params, [$pageSize, $offset]);
+    $stmt->execute($execParams);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    \App\Http\jsonResponse(['status' => 'ok', 'items' => $rows]);
+
+    \App\Http\jsonResponse([
+        'status' => 'ok',
+        'items' => $rows,
+        'pagination' => [
+            'page' => $page,
+            'page_size' => $pageSize,
+            'total' => $total,
+            'total_pages' => $totalPages
+        ]
+    ]);
     exit;
 }
 

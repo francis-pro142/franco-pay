@@ -90,3 +90,19 @@ Authorization: Bearer <token>
 - Duplicate requests with the same `Idempotency-Key` and same sender wallet are rejected as repeats.
 - Transfers validate recipient existence, amount positivity, and sufficient funds.
 - Ledger entries and audit entries are stored with each successful or failed transaction.
+ 
+## Admin Audit (filtering + pagination)
+
+GET /api/admin/audit
+
+Query parameters (optional):
+
+- `page`: page number (default 1)
+- `page_size`: number per page (default 25, max 100)
+- `q`: free-text search applied to `action`, `entity_type`, `entity_id`, `metadata`, and `ip_address`
+- `action`: filter by action string (exact match)
+- `user_id`: filter by numeric user id
+- `entity_type`: filter by entity type (exact match)
+
+Response includes `items` (array of audit rows) and `pagination` with `page`, `page_size`, `total`, and `total_pages`.
+
