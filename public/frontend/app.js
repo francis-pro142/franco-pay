@@ -378,6 +378,59 @@ if (document.location.pathname.endsWith('/admin.html')) {
   const auditContainer = document.getElementById('auditContainer');
   const refreshBtn = document.getElementById('refreshAudit');
   const logoutBtn = document.getElementById('logoutBtn');
+  const searchInput = document.getElementById('auditSearch');
+  const pageSizeSelect = document.getElementById('auditPageSize');
+  const prevBtn = document.getElementById('prevPage');
+  const nextBtn = document.getElementById('nextPage');
+  const currentPageEl = document.getElementById('currentPage');
+
+  let auditItems = [];
+  let page = 1;
+
+  function renderPage() {
+    if (!auditContainer) return;
+    const pageSize = parseInt(pageSizeSelect.value || '25', 10) || 25;
+    const q = (searchInput.value || '').toLowerCase().trim();
+    let filtered = auditItems;
+    if (q) {
+      filtered = auditItems.filter(it => {
+        return String(it.action || '').toLowerCase().includes(q)
+          || String(it.user_id || '').toLowerCase().includes(q)
+          || String(it.entity_type || '').toLowerCase().includes(q)
+          || String(it.entity_id || '').toLowerCase().includes(q)
+          || String(it.metadata || '').toLowerCase().includes(q)
+          || String(it.ip_address || '').toLowerCase().includes(q);
+      });
+    }
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > totalPages) page = totalPages;
+    const start = (page - 1) * pageSize;
+    const slice = filtered.slice(start, start + pageSize);
+
+    currentPageEl.textContent = String(page) + ' / ' + String(totalPages);
+
+    if (!slice.length) {
+      auditContainer.innerHTML = '<div class="empty-state">No audit logs found.</div>';
+      return;
+    }
+
+    const rows = slice.map((it) => {
+      const ts = new Date(it.created_at || Date.now()).toLocaleString();
+      return `
+        <div class="audit-row">
+          <div class="audit-col"><strong>${ts}</strong></div>
+          <div class="audit-col">User: ${it.user_id || '—'}</div>
+          <div class="audit-col">Action: ${it.action}</div>
+          <div class="audit-col">Entity: ${it.entity_type || '—'} ${it.entity_id || ''}</div>
+          <div class="audit-col">IP: ${it.ip_address || '—'}</div>
+          <div class="audit-col">Meta: <small>${it.metadata || '—'}</small></div>
+        </div>
+      `;
+    }).join('');
+
+    auditContainer.innerHTML = rows;
+  }
 
   async function loadAudit() {
     if (!auditContainer) return;
@@ -388,31 +441,25 @@ if (document.location.pathname.endsWith('/admin.html')) {
       }).then(r => r.json());
 
       if (!res.items) {
+        auditItems = [];
         auditContainer.innerHTML = '<div class="empty-state">No audit items or access denied.</div>';
         return;
       }
 
-      const rows = res.items.map((it) => {
-        const ts = new Date(it.created_at || Date.now()).toLocaleString();
-        return `
-          <div class="audit-row">
-            <div class="audit-col"><strong>${ts}</strong></div>
-            <div class="audit-col">User: ${it.user_id || '—'}</div>
-            <div class="audit-col">Action: ${it.action}</div>
-            <div class="audit-col">Entity: ${it.entity_type || '—'} ${it.entity_id || ''}</div>
-            <div class="audit-col">IP: ${it.ip_address || '—'}</div>
-            <div class="audit-col">Meta: <small>${it.metadata || '—'}</small></div>
-          </div>
-        `;
-      }).join('');
-
-      auditContainer.innerHTML = rows || '<div class="empty-state">No audit logs found.</div>';
+      auditItems = res.items;
+      page = 1;
+      renderPage();
     } catch (err) {
       auditContainer.innerHTML = '<div class="empty-state">Unable to load audit logs.</div>';
     }
   }
 
   if (refreshBtn) refreshBtn.addEventListener('click', loadAudit);
+  if (searchInput) searchInput.addEventListener('input', () => { page = 1; renderPage(); });
+  if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => { page = 1; renderPage(); });
+  if (prevBtn) prevBtn.addEventListener('click', () => { if (page > 1) { page--; renderPage(); } });
+  if (nextBtn) nextBtn.addEventListener('click', () => { page++; renderPage(); });
+
   if (logoutBtn) logoutBtn.addEventListener('click', async () => {
     const token = localStorage.getItem('fp_token');
     if (token) {

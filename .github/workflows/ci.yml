@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Show versions
+        run: |
+          php -v
+          node --version
+
+      - name: Lint PHP entrypoints
+        run: |
+          php -l public/index.php
+          php -l src/Http/helpers.php
+
+      - name: Check frontend JS syntax
+        run: |
+          node --check public/frontend/app.js || true
+
+      - name: Run flow checks
+        run: |
+          php tests/flow_check.php

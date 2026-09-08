@@ -11,6 +11,12 @@
     <header class="topbar">
       <h1>Admin — Audit Logs</h1>
       <div class="top-actions">
+        <input id="auditSearch" placeholder="Search action, user, entity or metadata" />
+        <select id="auditPageSize">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+        </select>
         <button id="refreshAudit">Refresh</button>
         <button id="logoutBtn">Logout</button>
       </div>
@@ -21,6 +27,12 @@
         <h2>Recent audit events</h2>
         <div id="auditContainer" class="audit-list">
           <div class="empty-state">Loading audit logs…</div>
+        </div>
+
+        <div class="pagination-controls">
+          <button id="prevPage">Prev</button>
+          <span id="currentPage">1</span>
+          <button id="nextPage">Next</button>
         </div>
       </section>
     </main>
