@@ -104,5 +104,8 @@ Query parameters (optional):
 - `user_id`: filter by numeric user id
 - `entity_type`: filter by entity type (exact match)
 
+- `from`: start date or datetime (ISO `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`) — inclusive
+- `to`: end date or datetime (ISO `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`) — inclusive
+
 Response includes `items` (array of audit rows) and `pagination` with `page`, `page_size`, `total`, and `total_pages`.
 

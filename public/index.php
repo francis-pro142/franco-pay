@@ -257,6 +257,8 @@ if ($uri === '/api/admin/audit' && $method === 'GET') {
     $filterAction = trim((string)($_GET['action'] ?? ''));
     $filterUser = trim((string)($_GET['user_id'] ?? ''));
     $filterEntity = trim((string)($_GET['entity_type'] ?? ''));
+    $from = trim((string)($_GET['from'] ?? ''));
+    $to = trim((string)($_GET['to'] ?? ''));
 
     $pdo = App\Services\DatabaseConnection::get();
     $where = [];
@@ -284,6 +286,25 @@ if ($uri === '/api/admin/audit' && $method === 'GET') {
             $where[] = 'user_id = ?';
             $params[] = (int)$filterUser;
         }
+    }
+
+    // Date range filtering (accepts YYYY-MM-DD or full datetime)
+    if ($from !== '') {
+        // normalize date-only to start of day
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+            $from = $from . ' 00:00:00';
+        }
+        $where[] = 'created_at >= ?';
+        $params[] = $from;
+    }
+
+    if ($to !== '') {
+        // normalize date-only to end of day
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            $to = $to . ' 23:59:59';
+        }
+        $where[] = 'created_at <= ?';
+        $params[] = $to;
     }
 
     $whereSql = '';
