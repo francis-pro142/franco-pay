@@ -373,6 +373,58 @@ if (document.location.pathname.endsWith('/dashboard.html')) {
   }
 }
 
+// Admin audit page
+if (document.location.pathname.endsWith('/admin.html')) {
+  const auditContainer = document.getElementById('auditContainer');
+  const refreshBtn = document.getElementById('refreshAudit');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  async function loadAudit() {
+    if (!auditContainer) return;
+    auditContainer.innerHTML = '<div class="empty-state">Loading audit logs…</div>';
+    try {
+      const res = await fetch(API_BASE + '/admin/audit', {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
+      }).then(r => r.json());
+
+      if (!res.items) {
+        auditContainer.innerHTML = '<div class="empty-state">No audit items or access denied.</div>';
+        return;
+      }
+
+      const rows = res.items.map((it) => {
+        const ts = new Date(it.created_at || Date.now()).toLocaleString();
+        return `
+          <div class="audit-row">
+            <div class="audit-col"><strong>${ts}</strong></div>
+            <div class="audit-col">User: ${it.user_id || '—'}</div>
+            <div class="audit-col">Action: ${it.action}</div>
+            <div class="audit-col">Entity: ${it.entity_type || '—'} ${it.entity_id || ''}</div>
+            <div class="audit-col">IP: ${it.ip_address || '—'}</div>
+            <div class="audit-col">Meta: <small>${it.metadata || '—'}</small></div>
+          </div>
+        `;
+      }).join('');
+
+      auditContainer.innerHTML = rows || '<div class="empty-state">No audit logs found.</div>';
+    } catch (err) {
+      auditContainer.innerHTML = '<div class="empty-state">Unable to load audit logs.</div>';
+    }
+  }
+
+  if (refreshBtn) refreshBtn.addEventListener('click', loadAudit);
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => {
+    const token = localStorage.getItem('fp_token');
+    if (token) {
+      try { await fetch(API_BASE + '/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }); } catch(e){}
+    }
+    localStorage.removeItem('fp_token');
+    window.location.href = 'login.html';
+  });
+
+  loadAudit();
+}
+
 const sendForm = document.getElementById('sendForm');
 if (sendForm) {
   const out = document.getElementById('result');

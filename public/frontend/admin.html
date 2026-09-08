@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FRANCO PAY — Admin Audit Logs</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <h1>Admin — Audit Logs</h1>
+      <div class="top-actions">
+        <button id="refreshAudit">Refresh</button>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel">
+        <h2>Recent audit events</h2>
+        <div id="auditContainer" class="audit-list">
+          <div class="empty-state">Loading audit logs…</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
