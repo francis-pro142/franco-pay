@@ -8,6 +8,12 @@ $pdo = DatabaseConnection::get();
 
 function insertUser(PDO $pdo, $fullName, $email, $password, $role = 'user')
 {
+    // If user exists, return existing id
+    $check = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+    $check->execute([$email]);
+    $row = $check->fetch(PDO::FETCH_ASSOC);
+    if ($row) return (int)$row['id'];
+
     $hash = password_hash($password, PASSWORD_DEFAULT);
     $stmt = $pdo->prepare('INSERT INTO users (full_name, email, password_hash, role) VALUES (?, ?, ?, ?)');
     $stmt->execute([$fullName, $email, $hash, $role]);
