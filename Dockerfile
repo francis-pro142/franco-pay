@@ -2,19 +2,34 @@ FROM php:8.2-apache
 
 WORKDIR /var/www/html
 
-# Install PHP extensions required by FRANCO PAY
-RUN docker-php-ext-install mysqli pdo pdo_mysql
+# Install system packages and PHP extensions
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    libzip-dev \
+    && docker-php-ext-install mysqli pdo pdo_mysql \
+    && rm -rf /var/lib/apt/lists/*
 
-# Enable Apache rewrite module
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+# Copy composer files first
+COPY composer.json composer.lock* ./
+
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Copy the rest of the application
+COPY . .
+
+# Enable Apache rewrite
 RUN a2enmod rewrite
 
-# Copy project into container
-COPY . /var/www/html/
+# Make /public the web root
+RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' \
+    /etc/apache2/sites-available/000-default.conf
 
-# Make /public the Apache web root
-RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' /etc/apache2/sites-available/000-default.conf
-
-# Allow .htaccess and access to the public directory
+# Allow access to public directory
 RUN printf '<Directory /var/www/html/public>\n\
     AllowOverride All\n\
     Require all granted\n\
