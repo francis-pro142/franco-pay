@@ -1,0 +1,9 @@
+# Route every request that is not a real file or directory into the front
+# controller, so /api/* reaches index.php when the repo root is the web root.
+# Without this, /api/auth/register returns the host's own 404 page (often with
+# an empty body), which the frontend cannot parse as JSON.
+RewriteEngine On
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]

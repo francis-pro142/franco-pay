@@ -1,5 +1,37 @@
 // Minimal frontend app for FRANCO PAY
-const API_BASE = '/api';
+
+// Resolve the API root from the page's own location, so the app works both at
+// the domain root and inside a subdirectory (e.g. https://host/franco-pay/).
+// A hardcoded '/api' breaks in the latter case: the request lands outside the
+// app and the web server answers with its own 404 page.
+const API_BASE = (function () {
+  const path = window.location.pathname;
+  const marker = path.lastIndexOf('/frontend/');
+  const base = marker >= 0 ? path.slice(0, marker) : path.replace(/\/[^/]*$/, '');
+  return (base === '/' ? '' : base) + '/api';
+})();
+
+// Read the body once and turn non-JSON replies (server 404 pages, PHP fatals,
+// empty bodies) into a readable Error rather than a bare
+// "Unexpected end of JSON input" from Response.json().
+async function parseJson(res) {
+  const body = (await res.text()).trim();
+
+  if (!body) {
+    if (res.status === 404) {
+      throw new Error('API endpoint not found (404): ' + res.url
+        + ' - check that the server rewrites unknown paths to index.php.');
+    }
+    throw new Error('The server returned an empty response (HTTP ' + res.status + ').');
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch (err) {
+    throw new Error('The server returned a non-JSON response (HTTP ' + res.status + '): '
+      + body.slice(0, 200));
+  }
+}
 
 function apiFetch(path, opts = {}) {
   const token = localStorage.getItem('fp_token');
@@ -7,7 +39,7 @@ function apiFetch(path, opts = {}) {
   headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   if (token) headers['Authorization'] = 'Bearer ' + token;
   opts.headers = headers;
-  return fetch(API_BASE + path, opts).then(r => r.json());
+  return fetch(API_BASE + path, opts).then(parseJson);
 }
 
 function go(path) { window.location.href = path; }
@@ -53,17 +85,22 @@ if (loginForm) {
       phone: identifier,
       password: password
     };
-    const res = await fetch(API_BASE + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).then(r => r.json());
+    try {
+      const res = await fetch(API_BASE + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).then(parseJson);
 
-    if (res.token) {
-      localStorage.setItem('fp_token', res.token);
-      go('dashboard.html');
-    } else {
-      alert(res.error || 'Login failed');
+      if (res.token) {
+        localStorage.setItem('fp_token', res.token);
+        go('dashboard.html');
+      } else {
+        alert(res.error || 'Login failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Login failed: ' + err.message);
     }
   });
 }
@@ -86,13 +123,20 @@ async function claimWelcomeBonus() {
   const token = localStorage.getItem('fp_token');
   if (!token) return;
 
-  const res = await fetch(API_BASE + '/wallet/claim-bonus', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token
-    }
-  }).then(r => r.json());
+  let res;
+  try {
+    res = await fetch(API_BASE + '/wallet/claim-bonus', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      }
+    }).then(parseJson);
+  } catch (err) {
+    console.error(err);
+    alert('Unable to accept bonus right now: ' + err.message);
+    return false;
+  }
 
   if (res.status === 'claimed' || res.balance !== undefined) {
     hideWelcomeBonusModal();
@@ -138,17 +182,22 @@ if (regForm) {
       password: passwordValue
     };
 
-    const res = await fetch(API_BASE + '/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).then(r => r.json());
+    try {
+      const res = await fetch(API_BASE + '/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).then(parseJson);
 
-    if (res.wallet_number) {
-      alert('Account created. Your first-time welcome bonus of GHC 100,000 has been added.');
-      go('login.html');
-    } else {
-      alert(res.error || 'Registration failed');
+      if (res.wallet_number) {
+        alert('Account created. Your first-time welcome bonus of GHC 100,000 has been added.');
+        go('login.html');
+      } else {
+        alert(res.error || 'Registration failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Registration failed: ' + err.message);
     }
   });
 }
@@ -398,47 +447,261 @@ if (document.location.pathname.endsWith('/admin.html')) {
           || String(it.user_id || '').toLowerCase().includes(q)
           || String(it.entity_type || '').toLowerCase().includes(q)
           || String(it.entity_id || '').toLowerCase().includes(q)
-          || String(it.metadata || '').toLowerCase().includes(q);
+          || String(it.metadata || '').toLowerCase().includes(q)
+          || String(it.ip_address || '').toLowerCase().includes(q);
       });
     }
 
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > totalPages) page = totalPages;
     const start = (page - 1) * pageSize;
-    const pageItems = filtered.slice(start, start + pageSize);
+    const slice = filtered.slice(start, start + pageSize);
 
-    if (!pageItems.length) {
-      auditContainer.innerHTML = '<div class="empty-state">No audit events</div>';
+    currentPageEl.textContent = String(page) + ' / ' + String(totalPages);
+
+    if (!slice.length) {
+      auditContainer.innerHTML = '<div class="empty-state">No audit logs found.</div>';
       return;
     }
 
-    auditContainer.innerHTML = pageItems.map(it => `
-      <div class="audit-row">
-        <div>
-          <strong>${it.action}</strong>
-          <small>${it.entity_type || ''} ${it.entity_id || ''}</small>
+    const rows = slice.map((it) => {
+      const ts = new Date(it.created_at || Date.now()).toLocaleString();
+      return `
+        <div class="audit-row">
+          <div class="audit-col"><strong>${ts}</strong></div>
+          <div class="audit-col">User: ${it.user_id || '—'}</div>
+          <div class="audit-col">Action: ${it.action}</div>
+          <div class="audit-col">Entity: ${it.entity_type || '—'} ${it.entity_id || ''}</div>
+          <div class="audit-col">IP: ${it.ip_address || '—'}</div>
+          <div class="audit-col">Meta: <small>${it.metadata || '—'}</small></div>
         </div>
-        <div>
-          <small>User: ${it.user_id || '—'}</small>
-          <small>${new Date(it.created_at || Date.now()).toLocaleString()}</small>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
-    currentPageEl.textContent = String(page);
+    auditContainer.innerHTML = rows;
   }
 
   async function loadAudit() {
+    if (!auditContainer) return;
+    auditContainer.innerHTML = '<div class="empty-state">Loading audit logs…</div>';
     try {
-      const res = await apiFetch('/admin/audit');
-      auditItems = res.items || [];
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('page_size', String(pageSizeSelect.value || '25'));
+      params.set('q', searchInput.value || '');
+      params.set('sort_by', document.getElementById('auditSortBy').value || 'created_at');
+      params.set('sort_order', document.getElementById('auditSortOrder').value || 'DESC');
+      const fromVal = (document.getElementById('fromDate') || {}).value || '';
+      const toVal = (document.getElementById('toDate') || {}).value || '';
+      if (fromVal) params.set('from', fromVal);
+      if (toVal) params.set('to', toVal);
+
+      const res = await fetch(API_BASE + '/admin/audit?' + params.toString(), {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
+      }).then(parseJson);
+
+      if (!res.items) {
+        auditItems = [];
+        auditContainer.innerHTML = '<div class="empty-state">No audit items or access denied.</div>';
+        return;
+      }
+
+      auditItems = res.items;
+      page = 1;
       renderPage();
     } catch (err) {
-      auditContainer.innerHTML = '<div class="empty-state">Unable to load audit logs</div>';
+      auditContainer.innerHTML = '<div class="empty-state">Unable to load audit logs.</div>';
     }
   }
 
+  // Export CSV using server-side export endpoint
+  const exportBtn = document.getElementById('exportCsv');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const token = localStorage.getItem('fp_token') || '';
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('page_size', String(pageSizeSelect.value || '25'));
+      params.set('q', searchInput.value || '');
+      params.set('sort_by', document.getElementById('auditSortBy').value || 'created_at');
+      params.set('sort_order', document.getElementById('auditSortOrder').value || 'DESC');
+      params.set('export', 'csv');
+
+      try {
+        const resp = await fetch(API_BASE + '/admin/audit?' + params.toString(), {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) {
+          alert('Export failed: ' + resp.statusText);
+          return;
+        }
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'audit_logs.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        alert('Export failed');
+      }
+    });
+  }
+
+  // Preset buttons
+  const presetToday = document.getElementById('presetToday');
+  const preset7 = document.getElementById('preset7');
+  const preset30 = document.getElementById('preset30');
+  function setDateRange(days) {
+    const now = new Date();
+    const to = now.toISOString().slice(0,10);
+    const from = new Date(now.getTime() - (days-1)*24*60*60*1000).toISOString().slice(0,10);
+    if (fromDate) fromDate.value = from;
+    if (toDate) toDate.value = to;
+    loadAudit();
+  }
+  if (presetToday) presetToday.addEventListener('click', () => setDateRange(1));
+  if (preset7) preset7.addEventListener('click', () => setDateRange(7));
+  if (preset30) preset30.addEventListener('click', () => setDateRange(30));
   if (refreshBtn) refreshBtn.addEventListener('click', loadAudit);
-  if (prevBtn) prevBtn.addEventListener('click', () => { if (page>1) { page--; renderPage(); } });
+  if (searchInput) searchInput.addEventListener('input', () => { page = 1; renderPage(); });
+  if (pageSizeSelect) pageSizeSelect.addEventListener('change', () => { page = 1; renderPage(); });
+  if (prevBtn) prevBtn.addEventListener('click', () => { if (page > 1) { page--; renderPage(); } });
   if (nextBtn) nextBtn.addEventListener('click', () => { page++; renderPage(); });
 
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => {
+    const token = localStorage.getItem('fp_token');
+    if (token) {
+      try { await fetch(API_BASE + '/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }); } catch(e){}
+    }
+    localStorage.removeItem('fp_token');
+    window.location.href = 'login.html';
+  });
+
   loadAudit();
+}
+
+const sendForm = document.getElementById('sendForm');
+if (sendForm) {
+  const out = document.getElementById('result');
+  const cancelBtn = document.getElementById('cancelReviewBtn');
+  const confirmBtn = document.getElementById('confirmTransferBtn');
+
+  sendForm.addEventListener('input', () => {
+    clearRecipientReview();
+    if (out) {
+      out.classList.remove('error', 'success');
+      out.textContent = 'Ready to send.';
+    }
+  });
+
+  const submitReview = async () => {
+    const recipient = (sendForm.recipient.value || '').trim();
+    const amount = parseFloat(sendForm.amount.value);
+    const description = (sendForm.description.value || '').trim();
+
+    if (!recipient) {
+      out.textContent = 'Please enter a valid recipient wallet number.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (recipient.toUpperCase() === currentWalletState.wallet_number.toUpperCase()) {
+      out.textContent = 'Security check failed: you cannot send money to your own wallet.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      out.textContent = 'Amount must be greater than zero.';
+      out.classList.add('error');
+      return;
+    }
+
+    if (amount > currentWalletState.balance) {
+      out.textContent = 'Warning: this transfer may exceed your available balance. The server will validate and reject if funds are insufficient.';
+      out.classList.remove('error');
+      out.classList.add('warning');
+      // do not return here; allow server to make authoritative decision
+    }
+
+    try {
+      const lookup = await fetch(API_BASE + '/wallet/resolve?wallet_number=' + encodeURIComponent(recipient), {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
+      }).then(parseJson);
+
+      if (!lookup || lookup.error) {
+        out.textContent = 'Recipient not found. Please verify the wallet number.';
+        out.classList.add('error');
+        return;
+      }
+
+      showRecipientReview({
+        full_name: lookup.full_name,
+        wallet_number: lookup.wallet_number,
+        amount
+      });
+
+      out.textContent = 'Please confirm the recipient before sending.';
+      out.classList.remove('error');
+      out.classList.add('success');
+    } catch (err) {
+      out.textContent = 'Unable to verify recipient details.';
+      out.classList.add('error');
+    }
+  };
+
+  sendForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (pendingRecipientConfirmation) {
+      return;
+    }
+    await submitReview();
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    if (!pendingRecipientConfirmation) return;
+
+    const confirmedRecipient = pendingRecipientConfirmation.wallet_number;
+    const confirmedAmount = pendingRecipientConfirmation.amount;
+    const data = {
+      recipient: confirmedRecipient,
+      amount: confirmedAmount,
+      description: (sendForm.description.value || '').trim()
+    };
+
+    const idKey = uuid();
+    const resp = await fetch(API_BASE + '/transactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idKey,
+        'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '')
+      },
+      body: JSON.stringify(data)
+    }).then(parseJson);
+
+    clearRecipientReview();
+    if (resp.status === 'SUCCESS') {
+      out.textContent = 'Transfer successful. Reference: ' + (resp.transaction?.transaction_reference || 'n/a');
+      out.classList.add('success');
+      sendForm.reset();
+      const updatedBalance = Math.max(0, currentWalletState.balance - confirmedAmount);
+      currentWalletState.balance = updatedBalance;
+      const balanceEl = document.getElementById('availableBalance');
+      if (balanceEl) balanceEl.textContent = formatMoney(updatedBalance);
+    } else {
+      out.textContent = 'Security check failed: ' + (resp.reason || resp.error || 'Please verify the transfer details.');
+      out.classList.add('error');
+    }
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    clearRecipientReview();
+    out.textContent = 'Transfer cancelled. Please review the recipient again.';
+    out.classList.remove('success');
+    out.classList.add('error');
+  });
 }

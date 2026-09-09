@@ -13,6 +13,12 @@ if (file_exists($envFile)) {
         [$name, $val] = explode('=', $line, 2);
         $name = trim($name);
         $val = trim($val);
+        // Real environment variables win over the .env file. Platforms such as
+        // Railway inject the database credentials this way, and a checked-in
+        // .env must not quietly override them.
+        if (getenv($name) !== false || isset($_ENV[$name]) || isset($_SERVER[$name])) {
+            continue;
+        }
         // remove surrounding quotes
         if ((str_starts_with($val, '"') && str_ends_with($val, '"')) || (str_starts_with($val, "'") && str_ends_with($val, "'"))) {
             $val = substr($val, 1, -1);

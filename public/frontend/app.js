@@ -1,5 +1,37 @@
 // Minimal frontend app for FRANCO PAY
-const API_BASE = '/api';
+
+// Resolve the API root from the page's own location, so the app works both at
+// the domain root and inside a subdirectory (e.g. https://host/franco-pay/).
+// A hardcoded '/api' breaks in the latter case: the request lands outside the
+// app and the web server answers with its own 404 page.
+const API_BASE = (function () {
+  const path = window.location.pathname;
+  const marker = path.lastIndexOf('/frontend/');
+  const base = marker >= 0 ? path.slice(0, marker) : path.replace(/\/[^/]*$/, '');
+  return (base === '/' ? '' : base) + '/api';
+})();
+
+// Read the body once and turn non-JSON replies (server 404 pages, PHP fatals,
+// empty bodies) into a readable Error rather than a bare
+// "Unexpected end of JSON input" from Response.json().
+async function parseJson(res) {
+  const body = (await res.text()).trim();
+
+  if (!body) {
+    if (res.status === 404) {
+      throw new Error('API endpoint not found (404): ' + res.url
+        + ' - check that the server rewrites unknown paths to index.php.');
+    }
+    throw new Error('The server returned an empty response (HTTP ' + res.status + ').');
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch (err) {
+    throw new Error('The server returned a non-JSON response (HTTP ' + res.status + '): '
+      + body.slice(0, 200));
+  }
+}
 
 function apiFetch(path, opts = {}) {
   const token = localStorage.getItem('fp_token');
@@ -7,7 +39,7 @@ function apiFetch(path, opts = {}) {
   headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   if (token) headers['Authorization'] = 'Bearer ' + token;
   opts.headers = headers;
-  return fetch(API_BASE + path, opts).then(r => r.json());
+  return fetch(API_BASE + path, opts).then(parseJson);
 }
 
 function go(path) { window.location.href = path; }
@@ -53,17 +85,22 @@ if (loginForm) {
       phone: identifier,
       password: password
     };
-    const res = await fetch(API_BASE + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).then(r => r.json());
+    try {
+      const res = await fetch(API_BASE + '/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).then(parseJson);
 
-    if (res.token) {
-      localStorage.setItem('fp_token', res.token);
-      go('dashboard.html');
-    } else {
-      alert(res.error || 'Login failed');
+      if (res.token) {
+        localStorage.setItem('fp_token', res.token);
+        go('dashboard.html');
+      } else {
+        alert(res.error || 'Login failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Login failed: ' + err.message);
     }
   });
 }
@@ -86,13 +123,20 @@ async function claimWelcomeBonus() {
   const token = localStorage.getItem('fp_token');
   if (!token) return;
 
-  const res = await fetch(API_BASE + '/wallet/claim-bonus', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token
-    }
-  }).then(r => r.json());
+  let res;
+  try {
+    res = await fetch(API_BASE + '/wallet/claim-bonus', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      }
+    }).then(parseJson);
+  } catch (err) {
+    console.error(err);
+    alert('Unable to accept bonus right now: ' + err.message);
+    return false;
+  }
 
   if (res.status === 'claimed' || res.balance !== undefined) {
     hideWelcomeBonusModal();
@@ -138,17 +182,22 @@ if (regForm) {
       password: passwordValue
     };
 
-    const res = await fetch(API_BASE + '/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    }).then(r => r.json());
+    try {
+      const res = await fetch(API_BASE + '/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).then(parseJson);
 
-    if (res.wallet_number) {
-      alert('Account created. Your first-time welcome bonus of GHC 100,000 has been added.');
-      go('login.html');
-    } else {
-      alert(res.error || 'Registration failed');
+      if (res.wallet_number) {
+        alert('Account created. Your first-time welcome bonus of GHC 100,000 has been added.');
+        go('login.html');
+      } else {
+        alert(res.error || 'Registration failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Registration failed: ' + err.message);
     }
   });
 }
@@ -449,7 +498,7 @@ if (document.location.pathname.endsWith('/admin.html')) {
 
       const res = await fetch(API_BASE + '/admin/audit?' + params.toString(), {
         headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
-      }).then(r => r.json());
+      }).then(parseJson);
 
       if (!res.items) {
         auditItems = [];
@@ -581,7 +630,7 @@ if (sendForm) {
     try {
       const lookup = await fetch(API_BASE + '/wallet/resolve?wallet_number=' + encodeURIComponent(recipient), {
         headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '') }
-      }).then(r => r.json());
+      }).then(parseJson);
 
       if (!lookup || lookup.error) {
         out.textContent = 'Recipient not found. Please verify the wallet number.';
@@ -632,7 +681,7 @@ if (sendForm) {
         'Authorization': 'Bearer ' + (localStorage.getItem('fp_token') || '')
       },
       body: JSON.stringify(data)
-    }).then(r => r.json());
+    }).then(parseJson);
 
     clearRecipientReview();
     if (resp.status === 'SUCCESS') {

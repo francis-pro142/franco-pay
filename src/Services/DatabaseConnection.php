@@ -20,7 +20,7 @@ class DatabaseConnection
             return self::$pdo;
         }
 
-        $driver = getenv('DB_DRIVER') ?: 'sqlite';
+        $driver = DBConfig::getDriver();
         $cfg = DBConfig::getConfig();
 
         if (strtolower($driver) === 'mysql') {

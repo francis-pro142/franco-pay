@@ -42,6 +42,7 @@ http://localhost:8080/frontend/index.html
 Example `.env`:
 
 ```env
+DB_DRIVER=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=franco_pay
@@ -50,6 +51,43 @@ DB_PASS=
 ```
 
 If MySQL is not available, the app falls back to SQLite and creates the local database automatically.
+
+Real environment variables take priority over `.env`, so a deployed platform's
+injected configuration is never shadowed by a checked-in file.
+
+## Deploying with a managed MySQL database (Railway)
+
+The app reads its database configuration from the environment in this order:
+
+1. `MYSQL_URL` or `DATABASE_URL` — the `mysql://user:pass@host:port/database`
+   connection string published by Railway and similar platforms.
+2. `MYSQLHOST` / `MYSQLPORT` / `MYSQLUSER` / `MYSQLPASSWORD` / `MYSQLDATABASE` —
+   the discrete variables Railway's MySQL service exposes.
+3. `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASS`.
+
+When any of the first two are present the driver switches to MySQL
+automatically, so attaching a Railway MySQL service is enough — no `DB_DRIVER`
+is required. Setting `DB_DRIVER` explicitly still overrides the detection.
+
+On Railway, reference the database from the app service's variables:
+
+```env
+MYSQL_URL=${{MySQL.MYSQL_URL}}
+```
+
+Then create the tables once against that database:
+
+```bash
+php bin/migrate.php
+```
+
+`bin/migrate.php` applies `database/migrations/001_create_tables.sql` for MySQL.
+Alternatively, import `schema.sql` through your host's database console.
+
+Without a MySQL service configured the app falls back to the SQLite file in
+`database/`, which lives inside the container and is discarded on every deploy —
+so a deployment that appears to work but loses its data between releases is a
+sign the database variables are not reaching the app.
 
 ## Core API endpoints
 

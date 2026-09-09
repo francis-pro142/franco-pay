@@ -9,12 +9,21 @@ use App\Services\TransactionService;
 use App\Models\Audit;
 use App\Services\DatabaseConnection;
 
-$uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = $_SERVER['REQUEST_METHOD'];
+
+// The app may be served from the domain root or from a subdirectory
+// (e.g. https://host/franco-pay/). Strip the directory the front controller
+// lives in so the route table below can keep matching absolute paths.
+$basePath = rtrim(str_replace(DIRECTORY_SEPARATOR, '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/index.php')), '/');
+if ($basePath !== '' && ($uri === $basePath || strpos($uri, $basePath . '/') === 0)) {
+    $uri = substr($uri, strlen($basePath));
+}
+$uri = '/' . ltrim($uri, '/');
 
 // Simple routing
 if (($uri === '/' || $uri === '/index.php' || $uri === '/frontend' || $uri === '/frontend/') && $method === 'GET') {
-    header('Location: /frontend/index.html');
+    header('Location: ' . $basePath . '/frontend/index.html');
     exit;
 }
 
