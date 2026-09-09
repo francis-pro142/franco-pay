@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FRANCO PAY — Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dashboard-body">
+  <div id="bonusModal" class="bonus-modal hidden" aria-hidden="true">
+    <div class="bonus-dialog">
+      <div class="bonus-icon">🎉</div>
+      <h3>Welcome bonus available</h3>
+      <p>You are eligible for a first-time welcome bonus of <strong>GHC 100,000</strong>.</p>
+      <p>Accept it to add it to your available balance.</p>
+      <div class="bonus-actions">
+        <button id="acceptBonusBtn" type="button">Accept bonus</button>
+        <button id="dismissBonusBtn" type="button" class="secondary-btn">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-shell">
+    <button id="sidebarToggle" class="mobile-menu-btn" type="button" aria-label="Open menu">☰</button>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <span class="eyebrow">FRANCO</span>
+          <strong>PAY</strong>
+        </div>
+      </div>
+
+      <nav class="side-nav" aria-label="Sidebar navigation">
+        <a class="active" href="#overview">Overview</a>
+        <a href="send.html">Transfers</a>
+        <a href="#cards">Cards</a>
+        <a href="#analytics">Analytics</a>
+        <a href="#settings">Settings</a>
+      </nav>
+
+      <div class="side-card">
+        <span class="eyebrow">Welcome bonus</span>
+        <strong>GHC 100,000</strong>
+        <small>Ready for first-time members</small>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div>
+          <p id="greetingText" class="eyebrow">Good morning</p>
+          <h1 id="welcomeTitle">Welcome back</h1>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="header-meta">
+            <span id="serverTimestamp" class="timestamp-pill">--</span>
+            <span id="accountName" class="account-pill">Account</span>
+          </div>
+          <a class="ghost-btn" id="sendLink" href="send.html">Send money</a>
+          <button id="logoutBtn" class="logout-btn" type="button">Logout</button>
+        </div>
+      </header>
+
+      <section id="overview" class="stats-grid">
+        <article class="stat-card accent">
+          <span>Available balance</span>
+          <strong id="walletBalance">GHC 0.00</strong>
+          <small id="accountNameSmall">Account name</small>
+          <small id="walletNumber">Wallet loading...</small>
+        </article>
+
+        <article class="stat-card">
+          <span>Wallet ID</span>
+          <strong id="walletCode">--</strong>
+          <small>Primary account</small>
+        </article>
+
+        <article class="stat-card">
+          <span>Transactions</span>
+          <strong id="txCount">0</strong>
+          <small>All activity</small>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article id="cards" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Quick overview</p>
+              <h2>Wallet summary</h2>
+            </div>
+            <button id="refreshWallet" class="mini-btn" type="button">Refresh</button>
+          </div>
+
+          <div id="welcomeBanner" class="wallet-banner">Welcome bonus: GHC 100,000 now available on your account.</div>
+
+          <div class="summary-row">
+            <span>Wallet number</span>
+            <strong id="walletNumberDetail">--</strong>
+          </div>
+          <div class="summary-row">
+            <span>Currency</span>
+            <strong>GHS</strong>
+          </div>
+        </article>
+
+        <article id="analytics" class="panel">
+          <p class="eyebrow">Quick actions</p>
+          <h2>Move funds</h2>
+          <div class="action-stack">
+            <a class="action-btn primary" href="send.html">Send Money</a>
+            <a class="action-btn secondary" href="#">Top up</a>
+          </div>
+        </article>
+      </section>
+
+      <section id="settings" class="panel activity-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Activity</p>
+            <h2>Recent transactions</h2>
+          </div>
+        </div>
+        <div id="transactions" class="transactions-list">Loading...</div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
