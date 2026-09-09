@@ -2,24 +2,23 @@ FROM php:8.2-apache
 
 WORKDIR /var/www/html
 
-# Install system packages and PHP extensions
+# Install required system packages
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
     libzip-dev \
+    libsqlite3-dev \
     && docker-php-ext-install mysqli pdo pdo_mysql pdo_sqlite \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Copy composer files first
-COPY composer.json composer.lock* ./
-
 # Install PHP dependencies
+COPY composer.json composer.lock* ./
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Copy the rest of the application
+# Copy application
 COPY . .
 
 # Enable Apache rewrite
