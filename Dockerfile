@@ -2,7 +2,7 @@ FROM php:8.2-apache
 
 WORKDIR /var/www/html
 
--- Install required system packages and PHP extensions
+# Install required system packages and PHP extensions
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
@@ -32,6 +32,11 @@ RUN printf '<Directory /var/www/html/public>\n    AllowOverride All\n    Require
 
 RUN a2enconf franco-pay
 
+# Listen on the port the platform assigns at runtime; defaults to 80 locally.
+COPY docker/start-apache.sh /usr/local/bin/start-apache
+RUN chmod +x /usr/local/bin/start-apache
+
+ENV PORT=80
 EXPOSE 80
 
-CMD ["apache2-foreground"]
+CMD ["start-apache"]
