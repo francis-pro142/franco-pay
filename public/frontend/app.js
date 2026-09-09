@@ -572,9 +572,10 @@ if (sendForm) {
     }
 
     if (amount > currentWalletState.balance) {
-      out.textContent = 'Security check failed: this transfer exceeds your available balance.';
-      out.classList.add('error');
-      return;
+      out.textContent = 'Warning: this transfer may exceed your available balance. The server will validate and reject if funds are insufficient.';
+      out.classList.remove('error');
+      out.classList.add('warning');
+      // do not return here; allow server to make authoritative decision
     }
 
     try {
