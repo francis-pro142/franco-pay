@@ -8,7 +8,16 @@ const API_BASE = (function () {
   const path = window.location.pathname;
   const marker = path.lastIndexOf('/frontend/');
   const base = marker >= 0 ? path.slice(0, marker) : path.replace(/\/[^/]*$/, '');
-  return (base === '/' ? '' : base) + '/api';
+  const candidate = (base === '/' ? '' : base) + '/api';
+  // On some hosts (e.g. Railway) .htaccess rewrites may not be applied.
+  // Prefer the index.php routed API path when running on those hosts.
+  try {
+    const host = window.location.hostname || '';
+    if (host.indexOf('railway.app') >= 0 || host.indexOf('vercel.app') >= 0) {
+      return (base === '/' ? '' : base) + '/index.php/api';
+    }
+  } catch (e) {}
+  return candidate;
 })();
 
 // Read the body once and turn non-JSON replies (server 404 pages, PHP fatals,
