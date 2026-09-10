@@ -429,6 +429,16 @@ header {
   margin-bottom: 18px;
 }
 
+.api-error {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(217,74,103,0.08);
+  color: #b13d54;
+  border: 1px solid rgba(217,74,103,0.18);
+  margin-bottom: 16px;
+  font-weight: 700;
+}
+
 .summary-row {
   display: flex;
   justify-content: space-between;
