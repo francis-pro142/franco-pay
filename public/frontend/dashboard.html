@@ -127,6 +127,17 @@
         </div>
         <div id="transactions" class="transactions-list">Loading...</div>
       </section>
+      <!-- Debug panel (show when ?debug=1 is in the URL) -->
+      <section id="debugPanel" class="panel hidden">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Diagnostics</p>
+            <h2>API diagnostics (debug mode)</h2>
+          </div>
+          <button id="runDiagnostics" class="mini-btn" type="button">Run checks</button>
+        </div>
+        <pre id="diagOutput" class="result-box" style="white-space:pre-wrap; max-height:300px; overflow:auto;">Diagnostics are hidden. Add ?debug=1 to the URL to show this panel.</pre>
+      </section>
     </main>
   </div>
 

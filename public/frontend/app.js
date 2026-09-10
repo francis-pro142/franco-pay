@@ -453,6 +453,52 @@ if (document.location.pathname.endsWith('/dashboard.html')) {
   }
 }
 
+// Debug utilities (visible when ?debug=1 is present)
+function appendDiag(msg) {
+  const out = document.getElementById('diagOutput');
+  if (!out) return;
+  out.textContent = (out.textContent || '') + '\n' + msg;
+}
+
+async function runDiagnostics() {
+  const out = document.getElementById('diagOutput');
+  if (!out) return;
+  out.textContent = 'Running diagnostics...';
+
+  try {
+    appendDiag('API_BASE: ' + API_BASE);
+    appendDiag('Trying: ' + API_BASE + '/health');
+    const h = await fetch(API_BASE + '/health');
+    appendDiag('/health -> ' + h.status + ' ' + h.statusText);
+    const hText = await h.text();
+    appendDiag('Body: ' + hText.slice(0, 1000));
+  } catch (err) {
+    appendDiag('/health error: ' + err.message);
+  }
+
+  try {
+    appendDiag('Trying: ' + API_BASE + '/wallet');
+    const token = localStorage.getItem('fp_token');
+    appendDiag('Token present: ' + (token ? 'yes' : 'no'));
+    const w = await fetch(API_BASE + '/wallet', { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    appendDiag('/wallet -> ' + w.status + ' ' + w.statusText);
+    const body = await w.text();
+    appendDiag('Body: ' + (body ? body.slice(0, 2000) : '(empty)'));
+  } catch (err) {
+    appendDiag('/wallet error: ' + err.message);
+  }
+}
+
+// Show debug panel if requested
+if (window.location.search && window.location.search.indexOf('debug=1') >= 0) {
+  const panel = document.getElementById('debugPanel');
+  if (panel) panel.classList.remove('hidden');
+  const runBtn = document.getElementById('runDiagnostics');
+  if (runBtn) runBtn.addEventListener('click', runDiagnostics);
+  // Run automatically once
+  runDiagnostics();
+}
+
 // Admin audit page
 if (document.location.pathname.endsWith('/admin.html')) {
   const auditContainer = document.getElementById('auditContainer');

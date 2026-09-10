@@ -439,6 +439,13 @@ header {
   font-weight: 700;
 }
 
+.result-box.debug {
+  background: #f8f9fc;
+  border: 1px solid rgba(100,110,140,0.12);
+  color: #0d2238;
+  font-weight: 600;
+}
+
 .summary-row {
   display: flex;
   justify-content: space-between;
