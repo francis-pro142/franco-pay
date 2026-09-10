@@ -9,17 +9,39 @@ class Wallet
     public static function ensureBonusColumn(): void
     {
         $pdo = DatabaseConnection::get();
-        $cols = $pdo->query("PRAGMA table_info(wallets)")->fetchAll(PDO::FETCH_ASSOC);
         $hasBonus = false;
-        foreach ($cols as $col) {
-            if (($col['name'] ?? '') === 'bonus_claimed') {
-                $hasBonus = true;
-                break;
-            }
+        try {
+            $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        } catch (\Throwable $e) {
+            $driver = 'sqlite';
         }
 
-        if (!$hasBonus) {
-            $pdo->exec('ALTER TABLE wallets ADD COLUMN bonus_claimed INTEGER NOT NULL DEFAULT 0');
+        if ($driver === 'sqlite') {
+            $cols = $pdo->query("PRAGMA table_info(wallets)")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($cols as $col) {
+                if (($col['name'] ?? '') === 'bonus_claimed') {
+                    $hasBonus = true;
+                    break;
+                }
+            }
+            if (!$hasBonus) {
+                $pdo->exec('ALTER TABLE wallets ADD COLUMN bonus_claimed INTEGER NOT NULL DEFAULT 0');
+            }
+        } else {
+            // Assume MySQL or compatible
+            try {
+                $stmt = $pdo->prepare("SHOW COLUMNS FROM wallets LIKE 'bonus_claimed'");
+                $stmt->execute();
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($row) $hasBonus = true;
+            } catch (\Throwable $e) {
+                $hasBonus = false;
+            }
+
+            if (!$hasBonus) {
+                // Use a MySQL-friendly column type
+                $pdo->exec('ALTER TABLE wallets ADD COLUMN bonus_claimed TINYINT(1) NOT NULL DEFAULT 0');
+            }
         }
     }
 
@@ -65,7 +87,14 @@ class Wallet
         }
 
         $newBalance = (float)$wallet['balance'] + 100000.00;
-        $stmt = $pdo->prepare('UPDATE wallets SET balance = ?, bonus_claimed = 1, updated_at = datetime("now") WHERE user_id = ?');
+        // Use DB-specific function for current timestamp
+        $driver = 'sqlite';
+        try { $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME); } catch (\Throwable $e) {}
+        if ($driver === 'sqlite') {
+            $stmt = $pdo->prepare('UPDATE wallets SET balance = ?, bonus_claimed = 1, updated_at = datetime("now") WHERE user_id = ?');
+        } else {
+            $stmt = $pdo->prepare('UPDATE wallets SET balance = ?, bonus_claimed = 1, updated_at = NOW() WHERE user_id = ?');
+        }
         $stmt->execute([$newBalance, $userId]);
 
         $wallet['balance'] = $newBalance;
