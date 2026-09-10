@@ -39,7 +39,36 @@ function apiFetch(path, opts = {}) {
   headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   if (token) headers['Authorization'] = 'Bearer ' + token;
   opts.headers = headers;
-  return fetch(API_BASE + path, opts).then(parseJson);
+  return fetch(API_BASE + path, opts).then(async (res) => {
+    if (!res.ok) {
+      const text = (await res.text()).trim();
+      throw new Error('HTTP ' + res.status + ' ' + res.statusText + ': ' + (text || res.url));
+    }
+    return parseJson(res);
+  }).catch((err) => {
+    err.apiBase = API_BASE;
+    throw err;
+  });
+}
+
+function showApiError(err) {
+  console.error('API error:', err);
+  const banner = document.getElementById('apiError');
+  if (banner) {
+    banner.textContent = 'API error (' + API_BASE + '): ' + (err && err.message ? err.message : String(err));
+    banner.classList.remove('hidden');
+  } else {
+    const wb = document.getElementById('welcomeBanner');
+    if (wb) wb.textContent = 'Unable to load data from the API.';
+  }
+}
+
+function hideApiError() {
+  const banner = document.getElementById('apiError');
+  if (banner) {
+    banner.classList.add('hidden');
+    banner.textContent = '';
+  }
 }
 
 function go(path) { window.location.href = path; }
@@ -301,6 +330,7 @@ if (document.location.pathname.endsWith('/dashboard.html')) {
 
   const loadDashboard = async () => {
     try {
+      hideApiError();
       const token = localStorage.getItem('fp_token');
       if (!token) {
         go('login.html');
@@ -370,6 +400,7 @@ if (document.location.pathname.endsWith('/dashboard.html')) {
       renderTransactions(tx.transactions || []);
     } catch (err) {
       console.error(err);
+      showApiError(err);
       const container = document.getElementById('transactions');
       if (container) container.innerHTML = '<div class="empty-state">Unable to load your dashboard right now.</div>';
     }
