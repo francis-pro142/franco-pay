@@ -42,10 +42,28 @@ function apiFetch(path, opts = {}) {
   return fetch(API_BASE + path, opts).then(async (res) => {
     if (!res.ok) {
       const text = (await res.text()).trim();
-      throw new Error('HTTP ' + res.status + ' ' + res.statusText + ': ' + (text || res.url));
+      const err = new Error('HTTP ' + res.status + ' ' + res.statusText + ': ' + (text || res.url));
+      err.status = res.status;
+      throw err;
     }
     return parseJson(res);
-  }).catch((err) => {
+  }).catch(async (err) => {
+    if (err && (err.status === 404 || /404/.test(String(err.message || ''))) && API_BASE.indexOf('/index.php') < 0) {
+      try {
+        const altBase = (API_BASE.replace(/^\//, '/index.php/'));
+        const altRes = await fetch(altBase + path, opts);
+        if (!altRes.ok) {
+          const t = (await altRes.text()).trim();
+          const e2 = new Error('Fallback HTTP ' + altRes.status + ' ' + altRes.statusText + ': ' + (t || altRes.url));
+          e2.status = altRes.status;
+          throw e2;
+        }
+        return parseJson(altRes);
+      } catch (err2) {
+        err2.apiBase = API_BASE;
+        throw err2;
+      }
+    }
     err.apiBase = API_BASE;
     throw err;
   });
